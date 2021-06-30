@@ -1,8 +1,9 @@
 import {Align} from "./align.enum";
+import {Padding} from "./padding.model";
 
 export class Column {
     public name: string;
     public align: Align;
-    public paddingRight?: number;
-    public paddingLeft?: number;
+    public paddingRight?: Padding;
+    public paddingLeft?: Padding;
 }

@@ -60,11 +60,11 @@ export class Table {
 
     private setPadding(rowValue: string, col: Column): string {
         if (col.paddingLeft) {
-            rowValue = CommonUtils.insertSpaces(col.paddingLeft) + rowValue;
+            rowValue = CommonUtils.insertCharacters(col.paddingLeft.unit, col.paddingLeft.value) + rowValue;
         }
 
         if(col.paddingRight) {
-            rowValue = rowValue + CommonUtils.insertSpaces(col.paddingRight);
+            rowValue = rowValue + CommonUtils.insertCharacters(col.paddingRight.unit, col.paddingRight.value);
         }
 
         return rowValue;
