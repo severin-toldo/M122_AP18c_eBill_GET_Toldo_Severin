@@ -1,6 +1,6 @@
 import {Recipient} from "../recipient.model";
 import {Customer} from "../customer.model";
-import {InvoicePartEntry} from "./part.model";
+import {InvoicePartEntry} from "./invoice-part.model";
 
 export class Invoice {
     public invoiceNumber: string;

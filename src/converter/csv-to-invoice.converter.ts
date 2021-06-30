@@ -3,11 +3,12 @@ import {from, Observable} from "rxjs";
 import {map, switchMap} from "rxjs/operators";
 import {Recipient} from "../model/recipient.model";
 import {Customer} from "../model/customer.model";
-import {InvoicePartEntry} from "../model/invoice/part.model";
+import {InvoicePartEntry} from "../model/invoice/invoice-part.model";
 import {Address} from "../model/address.model";
 import {CommonUtils} from "../common.utils";
+import {Converter} from "./converter.interface";
 
-export class CsvToInvoiceConverter {
+export class CsvToInvoiceConverter implements Converter<string, Observable<Invoice>> {
 
     private static readonly CSV_TO_JSON_CONFIG = {
         noheader: true, // Indicating csv data has no header row and first row is data row. Default is false
@@ -29,8 +30,8 @@ export class CsvToInvoiceConverter {
         this.csvToJson = csvToJson;
     }
 
-    public convert(csvFilePath: string): Observable<Invoice> {
-        return from(this.csvToJson(CsvToInvoiceConverter.CSV_TO_JSON_CONFIG).fromFile(csvFilePath))
+    public convert(csv: string): Observable<Invoice> {
+        return from(this.csvToJson(CsvToInvoiceConverter.CSV_TO_JSON_CONFIG).fromString(csv))
             .pipe(map((invoiceJson: any[]) => {
                 this.validateInvoiceJson(invoiceJson);
 
@@ -127,7 +128,7 @@ export class CsvToInvoiceConverter {
     }
 
     private getPartEntriesFromJson(invoiceJson: any[]): InvoicePartEntry[] {
-        const partEntries = [];
+        const partEntries: InvoicePartEntry[] = [];
 
         // take all elements with index >= INVOICE_PART_ENTRIES_OFFSET
         for (let i = CsvToInvoiceConverter.INVOICE_PART_ENTRIES_OFFSET; i < invoiceJson.length; i++) {
@@ -140,6 +141,7 @@ export class CsvToInvoiceConverter {
             partEntry.price = partJson && partJson.field5;
             partEntry.total = partJson && partJson.field6;
             partEntry.vat = this.parseUnderlineSeparatedValue(partJson && partJson.field7);
+            partEntry.currency = 'CHF';
 
             partEntries.push(partEntry);
         }
