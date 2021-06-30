@@ -10,37 +10,41 @@ export class Table {
 
 
     public toString(): string[] {
-        const transformedRowValues: any[][] = this.columns.map(col => {
-            let rowValues = this.rows
-                .map(row => row.value[col.name])
-                .map(value => '' + value + ''); // ensure that all are strings
+        const rowValuesByColumnName: any[] = this.columns.map(col => {
+            let rowValuesByIndex = this.rows
+                .map((row, index) => {
+                    return {
+                        index: index, // index necessary to keep order of elements
+                        value: '' + row.value[col.name] + '' // ensure that all are strings
+                    }
+                });
 
-            const longestRowValueLength: number = CommonUtils.getLongestStringLength(rowValues);
-
-            return rowValues.map(rv => {
-                rv = this.setAlignment(rv, longestRowValueLength, col);
-                rv = this.setPadding(rv, col);
+            const longestRowValueLength: number = CommonUtils.getLongestStringLength(rowValuesByIndex.map(rv => rv.value));
+            const transformedRowValuesByIndex = rowValuesByIndex.map(rv => {
+                rv.value = this.setAlignment(rv.value, longestRowValueLength, col);
+                rv.value = this.setPadding(rv.value, col);
 
                 return rv;
             });
+
+            return {
+                columnName: col.name,
+                values: transformedRowValuesByIndex
+            };
         });
 
-        // Ensure that all transformed row values have the same length and nothing went wrong during conversion
-        const targetLength = transformedRowValues[0].length;
-        const elementWithNotSameLength = transformedRowValues.filter(e => e.length !== targetLength);
-        const doAllElementsHaveSameLength = elementWithNotSameLength && elementWithNotSameLength.length === 0;
-
-        // should never happen
-        if (!doAllElementsHaveSameLength) {
-            throw new Error('Error while toString table. allValues elements have different lengths!');
-        }
-
-        // build final result
         const result = [];
 
-        for (let i = 0; i < targetLength; i++) {
-            result.push(transformedRowValues.map(e => e[i]).join(''));
-        }
+        // build final result
+        this.rows.forEach((row, index) => {
+            const rowResult = [];
+
+            this.columns.forEach(col => {
+                rowResult.push(rowValuesByColumnName.filter(rv => rv.columnName === col.name)[0].values[index].value);
+            });
+
+            result.push(rowResult.join(''));
+        });
 
         return result;
     }
