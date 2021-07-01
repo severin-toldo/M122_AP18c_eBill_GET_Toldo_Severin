@@ -13,4 +13,5 @@ export class Invoice {
     public customer: Customer;
     public partEntries: InvoicePartEntry[];
     public total: string; // not used for further calculation so that's ok
+    public referenceNumber: string;
 }

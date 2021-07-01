@@ -47,6 +47,7 @@ export class CsvToInvoiceConverter implements Converter<string, Observable<Invoi
 
                 this.setPaymentTarget(invoiceJson, invoice);
                 this.setTotal(invoice);
+                this.setReferenceNumber(invoice);
 
                 return invoice;
             }));
@@ -166,6 +167,10 @@ export class CsvToInvoiceConverter implements Converter<string, Observable<Invoi
                 return parseFloat(total.toString()) + parseFloat(currentTotal.toString());
             })
             .toFixed(2);
+    }
+
+    private setReferenceNumber(invoice: Invoice) {
+        invoice.referenceNumber = '0 00000 00000 00000'; // couldn't spot any reference number in the csv
     }
 
     private validateInvoiceJson(invoiceJson: any[]): void {

@@ -153,7 +153,7 @@ export class InvoiceToTxtConverter implements Converter<Invoice, string> {
             content.push(``);
         }
 
-        content.push(`Zahlungsziel ohne Abzug ${invoice.paymentTargetInDays} Tage (${this.dateFormat(invoice.paymentTarget, 'dd.mm.yyyy')})`);
+        content.push(`Zahlungsziel ohne Abzug ${invoice.paymentTargetInDays} Tage (${this.toTextDate(invoice.paymentTarget)})`);
         content.push(``);
         content.push(`Einzahlungsschein`);
         content.push(``);
@@ -205,7 +205,7 @@ export class InvoiceToTxtConverter implements Converter<Invoice, string> {
                 col3: invoice.customer.address.street
             },
             {
-                col1: '0 00000 00000 00000',
+                col1: invoice.referenceNumber,
                 col2: '',
                 col3: invoice.customer.address.place
             }
@@ -224,6 +224,10 @@ export class InvoiceToTxtConverter implements Converter<Invoice, string> {
     }
 
     private buildCreationInformation(invoice: Invoice): string {
-        return `${invoice.creationPlace}, den ${this.dateFormat(invoice.creationDate, 'dd.mm.yyyy')}`;
+        return `${invoice.creationPlace}, den ${this.toTextDate(invoice.creationDate)}`;
+    }
+
+    private toTextDate(date: Date): string {
+        return this.dateFormat(date, 'dd.mm.yyyy');
     }
 }

@@ -10,6 +10,7 @@ import {of} from "rxjs";
 import {ConfigKeys} from "./model/config/config-keys.model";
 import {CsvToInvoiceConverter} from "./converter/csv-to-invoice.converter";
 import {InvoiceToTxtConverter} from "./converter/invoice-to-txt.converter";
+import {InvoiceToXmlConverter} from "./converter/invoice-to-xml.converter";
 
 /*
  * Main Script file
@@ -51,13 +52,21 @@ const csv = fileService.getFileContent(csvFilePath);
 
 const converter = new CsvToInvoiceConverter(CSV_TO_JSON);
 
+
+
+
+
 converter.convert(csv).subscribe(invoice => {
-    // console.log(invoice);
-    const invoiceToTxtConverter = new InvoiceToTxtConverter(DATE_FORMAT);
-    const result = invoiceToTxtConverter.convert(invoice);
+    console.log(invoice);
+
+    // const invoiceToTxtConverter = new InvoiceToTxtConverter(DATE_FORMAT);
+    // const result = invoiceToTxtConverter.convert(invoice);
+
+    const invoiceToXmlConverter = new InvoiceToXmlConverter(DATE_FORMAT);
+    const result = invoiceToXmlConverter.convert(invoice);
     console.log(result);
 
-    fileService.writeToFile('/Users/stoldo/Downloads/my_invoice.txt', result);
+    fileService.writeToFile('/Users/stoldo/Downloads/my_invoice.xml', result);
 });
 
 
