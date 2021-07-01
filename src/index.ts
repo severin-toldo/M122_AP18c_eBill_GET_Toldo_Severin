@@ -3,13 +3,13 @@
 import {catchError, map, switchMap, tap} from 'rxjs/operators';
 import {FtpService} from "./service/ftp.service";
 import {FileService} from "./service/file.service";
-import {EmailService} from "./service/email.service";
 import {CommonUtils} from "./common.utils";
 import {ErrorCode} from "./model/error-code/error-code.enum";
 import {ErrorCodeError} from "./model/error-code/error-code-error.model";
 import {of} from "rxjs";
 import {ConfigKeys} from "./model/config/config-keys.model";
 import {CsvToInvoiceConverter} from "./converter/csv-to-invoice.converter";
+import {InvoiceToTxtConverter} from "./converter/invoice-to-txt.converter";
 
 /*
  * Main Script file
@@ -21,9 +21,23 @@ declare function require(name: string);
 declare const process: {argv: any};
 
 // requires
+const OS = require('os');
+const FS = require('fs');
+const ARGS = require('minimist')(process.argv.slice(2)); // library to parse command line arguments
+const FTP = require( 'ftp' );
+const ARCHIVER = require('archiver');
+const MD5 = require('md5');
+const NODEMAILER = require('nodemailer');
+const ZIPPER = require('zip-local');
+const WINSTON = require('winston');
+const { format } = require('logform');
 const CSV_TO_JSON = require('csvtojson');
+var DATE_FORMAT = require("dateformat");
 
 
+// services
+const fileService = new FileService(FS, OS, ARCHIVER, MD5, ZIPPER);
+const ftpService = new FtpService(new FTP(), FS, fileService); // new FTP() -> library's ftp client needs to be initialized like this, don't ask me why
 
 
 
@@ -32,15 +46,18 @@ const CSV_TO_JSON = require('csvtojson');
 
 
 const csvFilePath = '/Users/stoldo/Downloads/my_invoice.data';
+const csv = fileService.getFileContent(csvFilePath);
+
 
 const converter = new CsvToInvoiceConverter(CSV_TO_JSON);
 
-converter.convert(csvFilePath).subscribe(invoice => {
-    console.log(null);
-    console.log(null);
-    console.log(null);
-    console.log(null);
-    console.log(invoice);
+converter.convert(csv).subscribe(invoice => {
+    // console.log(invoice);
+    const invoiceToTxtConverter = new InvoiceToTxtConverter(DATE_FORMAT);
+    const result = invoiceToTxtConverter.convert(invoice);
+    console.log(result);
+
+    fileService.writeToFile('/Users/stoldo/Downloads/my_invoice.txt', result);
 });
 
 
@@ -52,21 +69,10 @@ converter.convert(csvFilePath).subscribe(invoice => {
 
 
 
-//
-// const OS = require('os');
-// const FS = require('fs');
-// const ARGS = require('minimist')(process.argv.slice(2)); // library to parse command line arguments
-// const FTP = require( 'ftp' );
-// const ARCHIVER = require('archiver');
-// const MD5 = require('md5');
-// const NODEMAILER = require('nodemailer');
-// const ZIPPER = require('zip-local');
-// const WINSTON = require('winston');
-// const { format } = require('logform');
-//
-// // services
-// const fileService = new FileService(FS, OS, ARCHIVER, MD5, ZIPPER);
-// const ftpService = new FtpService(new FTP(), FS, fileService); // new FTP() -> library's ftp client needs to be initialized like this, don't ask me why
+
+
+// TODO logging to file, check how disable enable is done else ifNotExists
+
 // const emailService = new EmailService(NODEMAILER);
 //
 // // global constants

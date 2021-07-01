@@ -46,6 +46,7 @@ export class CsvToInvoiceConverter implements Converter<string, Observable<Invoi
                 invoice.partEntries = this.getPartEntriesFromJson(invoiceJson);
 
                 this.setPaymentTarget(invoiceJson, invoice);
+                this.setTotal(invoice);
 
                 return invoice;
             }));
@@ -155,6 +156,16 @@ export class CsvToInvoiceConverter implements Converter<string, Observable<Invoi
 
         invoice.paymentTargetInDays = paymentTargetInDays;
         invoice.paymentTarget = CommonUtils.addDaysToDate(invoice.creationDate, parseInt(paymentTargetInDays));
+    }
+
+    private setTotal(invoice: Invoice) {
+        invoice.total = invoice.partEntries
+            .map(partEntry => partEntry.total)
+            .reduce((total: number, currentTotal: number) => {
+                // wtf javascript??
+                return parseFloat(total.toString()) + parseFloat(currentTotal.toString());
+            })
+            .toFixed(2);
     }
 
     private validateInvoiceJson(invoiceJson: any[]): void {
