@@ -1,7 +1,7 @@
 import {ConfigKey} from "./config-key.model";
 
 /*
- * ConfigKeys. Each key represent a command line argument
+ * ConfigKeys. Each key represent a config key or a command line argument
  * @author Severin Toldo
  * */
 export class ConfigKeys {
@@ -9,16 +9,15 @@ export class ConfigKeys {
     public static values(): ConfigKey[] {
         return [
             this.CONFIG_FILE,
-            this.FTP_HOST,
-            this.FTP_USER,
-            this.FTP_PASSWORD,
-            this.FTP_BACKUP_LOCATION,
-            this.EMAIL_SERVICE,
-            this.EMAIL_USER,
-            this.EMAIL_PASSWORD,
-            this.EMAIL_TO,
-            this.FILE_TO_BACKUP_PATH,
-            this.LOG_FILE_PATH
+            this.LOG_FILE_PATH,
+            this.CUSTOMER_SYSTEM_FTP_HOST,
+            this.CUSTOMER_SYSTEM_FTP_USER,
+            this.CUSTOMER_SYSTEM_FTP_PASSWORD,
+            this.PAYMENT_SYSTEM_FTP_HOST,
+            this.PAYMENT_SYSTEM_FTP_USER,
+            this.PAYMENT_SYSTEM_FTP_PASSWORD,
+            this.INVOICE_GET_FTP_LOCATION,
+            this.INVOICE_PUT_FTP_LOCATION,
         ];
     }
 
@@ -27,54 +26,49 @@ export class ConfigKeys {
         required: false
     };
 
-    public static readonly FTP_HOST: ConfigKey = {
-        key: 'ftpHost',
-        required: true
-    };
-
-    public static readonly FTP_USER: ConfigKey = {
-        key: 'ftpUser',
-        required: true
-    };
-
-    public static readonly FTP_PASSWORD: ConfigKey = {
-        key: 'ftpPassword',
-        required: true
-    };
-
-    public static readonly FTP_BACKUP_LOCATION: ConfigKey = {
-        key: 'ftpBackupLocation',
-        required: true
-    };
-
-    public static readonly EMAIL_SERVICE: ConfigKey = {
-        key: 'emailService',
-        required: false
-    };
-
-    public static readonly EMAIL_USER: ConfigKey = {
-        key: 'emailUser',
-        required: false
-    };
-
-    public static readonly EMAIL_PASSWORD: ConfigKey = {
-        key: 'emailPassword',
-        required: false
-    };
-
-    public static readonly EMAIL_TO: ConfigKey = {
-        key: 'emailTo',
-        required: false
-    };
-
-    public static readonly FILE_TO_BACKUP_PATH: ConfigKey = {
-        key: 'file',
-        required: true
-    };
-
     public static readonly LOG_FILE_PATH: ConfigKey = {
         key: 'logFile',
         required: false
+    };
+
+    public static readonly CUSTOMER_SYSTEM_FTP_HOST: ConfigKey = {
+        key: 'customerSystemFtpHost',
+        required: true
+    };
+
+    public static readonly CUSTOMER_SYSTEM_FTP_USER: ConfigKey = {
+        key: 'customerSystemFtpUser',
+        required: true
+    };
+
+    public static readonly CUSTOMER_SYSTEM_FTP_PASSWORD: ConfigKey = {
+        key: 'customerSystemFtpPassword',
+        required: true
+    };
+
+    public static readonly PAYMENT_SYSTEM_FTP_HOST: ConfigKey = {
+        key: 'paymentSystemFtpHost',
+        required: true
+    };
+
+    public static readonly PAYMENT_SYSTEM_FTP_USER: ConfigKey = {
+        key: 'paymentSystemFtpUser',
+        required: true
+    };
+
+    public static readonly PAYMENT_SYSTEM_FTP_PASSWORD: ConfigKey = {
+        key: 'paymentSystemFtpPassword',
+        required: true
+    };
+
+    public static readonly INVOICE_GET_FTP_LOCATION: ConfigKey = {
+        key: 'invoicesGetFtpLocation',
+        required: true
+    };
+
+    public static readonly INVOICE_PUT_FTP_LOCATION: ConfigKey = {
+        key: 'invoicesPutFtpLocation',
+        required: true
     };
 
 }

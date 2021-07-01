@@ -1,0 +1,13 @@
+{
+	"customerSystemFtpHost": "ftpHost.com",
+	"customerSystemFtpUser": "ftpUser",
+	"customerSystemFtpPassword": "ftpPassword",
+	"paymentSystemFtpHost": "ftpHost.com",
+	"paymentSystemFtpUser": "ftpUser",
+	"paymentSystemFtpPassword": "ftpPassword",
+	"invoicesGetFtpLocation": "/path/to/location/",
+	"invoicesPutFtpLocation": "/path/to/location/",
+	"logFile": "/path/to/file.txt"
+}
+
+

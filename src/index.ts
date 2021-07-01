@@ -17,9 +17,11 @@ import {InvoiceToXmlConverter} from "./converter/invoice-to-xml.converter";
  * @author Severin Toldo
  * */
 
+
 // typescript runtime declares
 declare function require(name: string);
 declare const process: {argv: any};
+
 
 // requires
 const OS = require('os');
@@ -41,33 +43,27 @@ const fileService = new FileService(FS, OS, ARCHIVER, MD5, ZIPPER);
 const ftpService = new FtpService(new FTP(), FS, fileService); // new FTP() -> library's ftp client needs to be initialized like this, don't ask me why
 
 
+// global constants
+const SCRIPT_NAME = 'eBillGet';
+const DEFAULT_CONFIG_FILE_NAME = 'ebill-get-config.json';
+const DEFAULT_CONFIG_FILE_PATH = fileService.getHomeDirPath() + '/' + DEFAULT_CONFIG_FILE_NAME;
+const CONFIG = buildConfig();
+
+const LOG_FILE_PATH = CommonUtils.getConfigKeyValue(ConfigKeys.LOG_FILE_PATH, CONFIG);
+const CUSTOMER_SYSTEM_FTP_HOST = CommonUtils.getConfigKeyValue(ConfigKeys.CUSTOMER_SYSTEM_FTP_HOST, CONFIG);
+const CUSTOMER_SYSTEM_FTP_USER = CommonUtils.getConfigKeyValue(ConfigKeys.CUSTOMER_SYSTEM_FTP_USER, CONFIG);
+const CUSTOMER_SYSTEM_FTP_PASSWORD = CommonUtils.getConfigKeyValue(ConfigKeys.CUSTOMER_SYSTEM_FTP_PASSWORD, CONFIG);
+const PAYMENT_SYSTEM_FTP_HOST = CommonUtils.getConfigKeyValue(ConfigKeys.PAYMENT_SYSTEM_FTP_HOST, CONFIG);
+const PAYMENT_SYSTEM_FTP_USER = CommonUtils.getConfigKeyValue(ConfigKeys.PAYMENT_SYSTEM_FTP_USER, CONFIG);
+const PAYMENT_SYSTEM_FTP_PASSWORD = CommonUtils.getConfigKeyValue(ConfigKeys.PAYMENT_SYSTEM_FTP_PASSWORD, CONFIG);
+const INVOICE_GET_FTP_LOCATION = CommonUtils.getConfigKeyValue(ConfigKeys.INVOICE_GET_FTP_LOCATION, CONFIG);
+const INVOICE_PUT_FTP_LOCATION = CommonUtils.getConfigKeyValue(ConfigKeys.INVOICE_PUT_FTP_LOCATION, CONFIG);
+
+const LOGGER = buildLogger();
 
 
-
-
-
-const csvFilePath = '/Users/stoldo/Downloads/my_invoice.data';
-const csv = fileService.getFileContent(csvFilePath);
-
-
-const converter = new CsvToInvoiceConverter(CSV_TO_JSON);
-
-
-
-
-
-converter.convert(csv).subscribe(invoice => {
-    console.log(invoice);
-
-    // const invoiceToTxtConverter = new InvoiceToTxtConverter(DATE_FORMAT);
-    // const result = invoiceToTxtConverter.convert(invoice);
-
-    const invoiceToXmlConverter = new InvoiceToXmlConverter(DATE_FORMAT);
-    const result = invoiceToXmlConverter.convert(invoice);
-    console.log(result);
-
-    fileService.writeToFile('/Users/stoldo/Downloads/my_invoice.xml', result);
-});
+// business logic
+// TODO implement
 
 
 
@@ -80,34 +76,166 @@ converter.convert(csv).subscribe(invoice => {
 
 
 
-// TODO logging to file, check how disable enable is done else ifNotExists
 
-// const emailService = new EmailService(NODEMAILER);
+// helper functions
+function buildConfig(): any {
+    const defaultConfigFile = resolveConfigFile(DEFAULT_CONFIG_FILE_PATH);
+    const argumentConfigFile = resolveConfigFile(CommonUtils.getConfigKeyValue(ConfigKeys.CONFIG_FILE, ARGS));
+
+    const config = {};
+
+    // command line argument overwrite config values, custom config overwrites default config
+    ConfigKeys.values().forEach(configKey => {
+        if (CommonUtils.isConfigKeyPresent(configKey, ARGS)) {
+            config[configKey.key] = CommonUtils.getConfigKeyValue(configKey, ARGS);
+        } else if (CommonUtils.isConfigKeyPresent(configKey, argumentConfigFile)) {
+            config[configKey.key] = CommonUtils.getConfigKeyValue(configKey, argumentConfigFile);
+        } else if (CommonUtils.isConfigKeyPresent(configKey, defaultConfigFile)) {
+            config[configKey.key] = CommonUtils.getConfigKeyValue(configKey, defaultConfigFile);
+        }
+    });
+
+    validateConfig(config);
+
+    return config;
+}
+
+function resolveConfigFile(path: string): any {
+    if (fileService.doesFileExist(path)) {
+        const fileContent = fileService.getFileContent(path);
+
+        if (CommonUtils.isValidJson(fileContent)) {
+            return JSON.parse(fileContent);
+        }
+    }
+
+    return null;
+}
+
+// all required config keys must be set
+function validateConfig(config: any): void {
+    ConfigKeys.values().forEach(configKey => {
+        if (configKey.required && !CommonUtils.isConfigKeyPresent(configKey, config)) {
+            throw new Error('Required config key missing! ' + configKey.key);
+        }
+    });
+}
+
+function buildLogger(): any {
+    const formatFunction = (data: any) => {
+        return `${data.timestamp} - ${data.level.toUpperCase()} ${SCRIPT_NAME}: ${data.message.trim()}`;
+    };
+
+    const logfileFormat = format.combine(
+        format.timestamp(),
+        format.align(),
+        format.printf(info => formatFunction(info))
+    );
+
+    const consoleFormat = format.combine(
+        format.timestamp(),
+        format.align(),
+        format.printf(data => WINSTON.format.colorize().colorize(data.level, formatFunction(data)))
+    );
+
+    const transports = [new WINSTON.transports.Console({ format: consoleFormat })];
+
+    if (LOG_FILE_PATH) {
+        transports.push(new WINSTON.transports.File({ filename: LOG_FILE_PATH, format: logfileFormat }));
+    }
+
+    return WINSTON.createLogger({
+        transports: transports,
+    });
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// const csvFilePath = '/Users/stoldo/Downloads/my_invoice.data';
+// const csv = fileService.getFileContent(csvFilePath);
 //
-// // global constants
-// const SCRIPT_NAME = 'AutoBackup';
-// const DEFAULT_CONFIG_FILE_NAME = 'autobackup-config.json';
-// const DEFAULT_CONFIG_FILE_PATH = fileService.getHomeDirPath() + '/' + DEFAULT_CONFIG_FILE_NAME;
-// const CONFIG = buildConfig();
 //
-// const FTP_HOST = CommonUtils.getConfigKeyValue(ConfigKeys.FTP_HOST, CONFIG);
-// const FTP_USER = CommonUtils.getConfigKeyValue(ConfigKeys.FTP_USER, CONFIG);
-// const FTP_PASSWORD = CommonUtils.getConfigKeyValue(ConfigKeys.FTP_PASSWORD, CONFIG);
-// const FTP_BACKUP_LOCATION = CommonUtils.getConfigKeyValue(ConfigKeys.FTP_BACKUP_LOCATION, CONFIG);
+// const converter = new CsvToInvoiceConverter(CSV_TO_JSON);
 //
-// const EMAIL_SERVICE = CommonUtils.getConfigKeyValue(ConfigKeys.EMAIL_SERVICE, CONFIG);
-// const EMAIL_USER = CommonUtils.getConfigKeyValue(ConfigKeys.EMAIL_USER, CONFIG);
-// const EMAIL_PASSWORD = CommonUtils.getConfigKeyValue(ConfigKeys.EMAIL_PASSWORD, CONFIG);
+// converter.convert(csv).subscribe(invoice => {
+//     console.log(invoice);
 //
-// const EMAIL_TO = CommonUtils.getConfigKeyValue(ConfigKeys.EMAIL_TO, CONFIG);
-// const FILE_TO_BACKUP_PATH = CommonUtils.getConfigKeyValue(ConfigKeys.FILE_TO_BACKUP_PATH, CONFIG);
-// const LOG_FILE_PATH = CommonUtils.getConfigKeyValue(ConfigKeys.LOG_FILE_PATH, CONFIG);
-// const DO_SEND_MAIL = !!(EMAIL_SERVICE && EMAIL_USER && EMAIL_PASSWORD && EMAIL_TO);
+//     // const invoiceToTxtConverter = new InvoiceToTxtConverter(DATE_FORMAT);
+//     // const result = invoiceToTxtConverter.convert(invoice);
 //
-// const logger = buildLogger();
+//     const invoiceToXmlConverter = new InvoiceToXmlConverter(DATE_FORMAT);
+//     const result = invoiceToXmlConverter.convert(invoice);
+//     console.log(result);
 //
-//
-// // business logic
+//     fileService.writeToFile('/Users/stoldo/Downloads/my_invoice.xml', result);
+// });
+
+
+
+
+
+
+
+
+// 1.) Automatisches (regelmässiges) Abholen der Rechnungsaufträge des Kunden/Rechnungssteller
+// (Abholserver) inkl. dem Löschen der Datei auf dem Abholserver
+// per FTP (Kundensystem/out/[KlasseUndIhrNachname])
+// FTP-Server: ftp.haraldmueller.ch
+// Benutzer: schoolerinvoices
+// Passwort: Berufsschule8005!
+
+// 2.) Verarbeitung der Rechnungsaufträge zu einer korrekten und druckbaren
+// Papierrechnung (…invoice.txt) und einer maschinell verarbeitbaren XML-Rechnung (…invoice.xml)
+
+// 3.) Abgabe der Rechnung als TXT und XML auf dem Abgabeserver
+// (Zahlungssystem/in/[KlasseUndIhrNachname]) per FTP
+// FTP-Server: 134.119.225.245
+// Benutzer: 310721-297-zahlsystem
+// Passwort: Berufsschule8005!
+
+
+
+
+
+
+
+
+
+
+// business logic
 // logger.info('Starting ' + SCRIPT_NAME);
 //
 //
@@ -195,81 +323,6 @@ converter.convert(csv).subscribe(invoice => {
 //
 //         throw error;
 //     });
-//
-//
-// // helper functions
-// function buildConfig(): any {
-//     const defaultConfigFile = resolveConfigFile(DEFAULT_CONFIG_FILE_PATH);
-//     const argumentConfigFile = resolveConfigFile(CommonUtils.getConfigKeyValue(ConfigKeys.CONFIG_FILE, ARGS));
-//
-//     const config = {};
-//
-//     // command line argument overwrite config values, custom config overwrites default config
-//     ConfigKeys.values().forEach(configKey => {
-//         if (CommonUtils.isConfigKeyPresent(configKey, ARGS)) {
-//             config[configKey.key] = CommonUtils.getConfigKeyValue(configKey, ARGS);
-//         } else if (CommonUtils.isConfigKeyPresent(configKey, argumentConfigFile)) {
-//             config[configKey.key] = CommonUtils.getConfigKeyValue(configKey, argumentConfigFile);
-//         } else if (CommonUtils.isConfigKeyPresent(configKey, defaultConfigFile)) {
-//             config[configKey.key] = CommonUtils.getConfigKeyValue(configKey, defaultConfigFile);
-//         }
-//     });
-//
-//     validateConfig(config);
-//
-//     return config;
-// }
-//
-// function resolveConfigFile(path: string): any {
-//     if (fileService.doesFileExist(path)) {
-//         const fileContent = fileService.getFileContent(path);
-//
-//         if (CommonUtils.isValidJson(fileContent)) {
-//             return JSON.parse(fileContent);
-//         }
-//     }
-//
-//     return null;
-// }
-//
-// // all required config keys must be set
-// function validateConfig(config: any): void {
-//     ConfigKeys.values().forEach(configKey => {
-//         if (configKey.required && !CommonUtils.isConfigKeyPresent(configKey, config)) {
-//             throw new Error('Required config key missing! ' + configKey.key);
-//         }
-//     });
-// }
-//
-// function buildBackupFileName(fileToBackupName: string): string {
-//     const dateStr = CommonUtils.getCurrentDateFormatted();
-//     return dateStr + '_backup_' + fileToBackupName;
-// }
-//
-// function buildLogger(): any {
-//     const formatFunction = (data: any) => {
-//         return `${data.timestamp} - ${data.level.toUpperCase()} ${SCRIPT_NAME}: ${data.message.trim()}`;
-//     };
-//
-//     const logfileFormat = format.combine(
-//         format.timestamp(),
-//         format.align(),
-//         format.printf(info => formatFunction(info))
-//     );
-//
-//     const consoleFormat = format.combine(
-//         format.timestamp(),
-//         format.align(),
-//         format.printf(data => WINSTON.format.colorize().colorize(data.level, formatFunction(data)))
-//     );
-//
-//     const transports = [new WINSTON.transports.Console({ format: consoleFormat })];
-//
-//     if (LOG_FILE_PATH) {
-//         transports.push(new WINSTON.transports.File({ filename: LOG_FILE_PATH, format: logfileFormat }));
-//     }
-//
-//     return WINSTON.createLogger({
-//         transports: transports,
-//     });
-// }
+
+
+
