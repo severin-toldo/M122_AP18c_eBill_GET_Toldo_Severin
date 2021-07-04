@@ -12,6 +12,7 @@ export class Invoice {
     public recipient: Recipient;
     public customer: Customer;
     public partEntries: InvoicePartEntry[];
-    public total: string; // not used for further calculation so that's ok
+    public total: number;
     public referenceNumber: string;
+    public originalFileName: string;
 }

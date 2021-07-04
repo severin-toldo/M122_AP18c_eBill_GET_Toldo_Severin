@@ -1,16 +1,19 @@
 // #!/usr/bin/env node
 
-import {catchError, map, switchMap, tap} from 'rxjs/operators';
+import {flatMap, map, publishReplay, refCount, switchMap, switchMapTo, tap} from 'rxjs/operators';
 import {FtpService} from "./service/ftp.service";
 import {FileService} from "./service/file.service";
 import {CommonUtils} from "./common.utils";
-import {ErrorCode} from "./model/error-code/error-code.enum";
-import {ErrorCodeError} from "./model/error-code/error-code-error.model";
-import {of} from "rxjs";
 import {ConfigKeys} from "./model/config/config-keys.model";
 import {CsvToInvoiceConverter} from "./converter/csv-to-invoice.converter";
+import {of, Observable, combineLatest} from "rxjs";
+import {Status} from "./model/status.model";
+import {Invoice} from "./model/invoice/invoice.model";
+import {error} from "winston";
 import {InvoiceToTxtConverter} from "./converter/invoice-to-txt.converter";
 import {InvoiceToXmlConverter} from "./converter/invoice-to-xml.converter";
+import {FtpClient} from "./model/ftp/ftp-client.model";
+
 
 /*
  * Main Script file
@@ -20,8 +23,7 @@ import {InvoiceToXmlConverter} from "./converter/invoice-to-xml.converter";
 
 // typescript runtime declares
 declare function require(name: string);
-declare const process: {argv: any};
-
+declare const process: { argv: any };
 
 // requires
 const OS = require('os');
@@ -33,15 +35,19 @@ const MD5 = require('md5');
 const NODEMAILER = require('nodemailer');
 const ZIPPER = require('zip-local');
 const WINSTON = require('winston');
-const { format } = require('logform');
+const {format} = require('logform');
 const CSV_TO_JSON = require('csvtojson');
-var DATE_FORMAT = require("dateformat");
-
+const DATE_FORMAT = require("dateformat");
+const SYNCHRONIZED_PROMISE = require('synchronized-promise');
 
 // services
 const fileService = new FileService(FS, OS, ARCHIVER, MD5, ZIPPER);
-const ftpService = new FtpService(new FTP(), FS, fileService); // new FTP() -> library's ftp client needs to be initialized like this, don't ask me why
+const ftpService = new FtpService(fileService);
 
+// converters
+const csvToInvoiceConverter = new CsvToInvoiceConverter(CSV_TO_JSON, DATE_FORMAT, SYNCHRONIZED_PROMISE);
+const invoiceToTxtConverter = new InvoiceToTxtConverter(DATE_FORMAT);
+const invoiceToXmlConverter = new InvoiceToXmlConverter(DATE_FORMAT);
 
 // global constants
 const SCRIPT_NAME = 'eBillGet';
@@ -56,28 +62,207 @@ const CUSTOMER_SYSTEM_FTP_PASSWORD = CommonUtils.getConfigKeyValue(ConfigKeys.CU
 const PAYMENT_SYSTEM_FTP_HOST = CommonUtils.getConfigKeyValue(ConfigKeys.PAYMENT_SYSTEM_FTP_HOST, CONFIG);
 const PAYMENT_SYSTEM_FTP_USER = CommonUtils.getConfigKeyValue(ConfigKeys.PAYMENT_SYSTEM_FTP_USER, CONFIG);
 const PAYMENT_SYSTEM_FTP_PASSWORD = CommonUtils.getConfigKeyValue(ConfigKeys.PAYMENT_SYSTEM_FTP_PASSWORD, CONFIG);
-const INVOICE_GET_FTP_LOCATION = CommonUtils.getConfigKeyValue(ConfigKeys.INVOICE_GET_FTP_LOCATION, CONFIG);
-const INVOICE_PUT_FTP_LOCATION = CommonUtils.getConfigKeyValue(ConfigKeys.INVOICE_PUT_FTP_LOCATION, CONFIG);
+const INVOICE_GET_FTP_LOCATION = normalizeFtpLocation(CommonUtils.getConfigKeyValue(ConfigKeys.INVOICE_GET_FTP_LOCATION, CONFIG));
+const INVOICE_PUT_FTP_LOCATION = normalizeFtpLocation(CommonUtils.getConfigKeyValue(ConfigKeys.INVOICE_PUT_FTP_LOCATION, CONFIG));
 
-const LOGGER = buildLogger();
+const logger = buildLogger();
 
 
 // business logic
-// TODO implement
+logger.info('Starting ' + SCRIPT_NAME);
 
 
+// TODO test error handling
 
 
+// set up and connect ftp clients
+const customerSystemFtpClient = new FtpClient(FTP, CUSTOMER_SYSTEM_FTP_HOST, CUSTOMER_SYSTEM_FTP_USER, CUSTOMER_SYSTEM_FTP_PASSWORD);
+const paymentSystemFtpClient = new FtpClient(FTP, PAYMENT_SYSTEM_FTP_HOST, PAYMENT_SYSTEM_FTP_USER, PAYMENT_SYSTEM_FTP_PASSWORD);
+
+const customerSystemFtpClientConnected$ = customerSystemFtpClient
+    .connect()
+    .pipe(tap(() => {
+        logger.info('Customer system FTP client connected.');
+        logger.info('URL: ' + CUSTOMER_SYSTEM_FTP_HOST);
+        logger.info('User: ' + CUSTOMER_SYSTEM_FTP_USER);
+    }))
+    .pipe(publishReplay(1))
+    .pipe(refCount());;
+
+const paymentSystemFtpClientConnected$ = paymentSystemFtpClient
+    .connect()
+    .pipe(tap(() => {
+        logger.info('Payment system FTP client connected.');
+        logger.info('URL: ' + PAYMENT_SYSTEM_FTP_HOST);
+        logger.info('User: ' + PAYMENT_SYSTEM_FTP_USER);
+    }))
+    .pipe(publishReplay(1))
+    .pipe(refCount());;
 
 
+// fetch invoices
+const invoices$: Observable<Invoice[]> = customerSystemFtpClientConnected$
+    .pipe(switchMap(() => ftpService.list(customerSystemFtpClient, INVOICE_GET_FTP_LOCATION)))
+    .pipe(map(response => response.payload.filter(e => e.name.includes('rechnung') && e.name.endsWith('.data'))))
+    .pipe(switchMap(newInvoiceFilesResponses => {
+        const invoiceDownloadObservables: Observable<Status>[] = newInvoiceFilesResponses.map(fr => {
+            return ftpService.download(customerSystemFtpClient, getInvoiceFtpGetPath(fr.name));
+        });
+
+        return combineLatest(...invoiceDownloadObservables);
+    }))
+    .pipe(tap(() => logger.info('Successfully downloaded invoice files.')))
+    .pipe(map((invoicesDownloadResponses: Status[]) => {
+        return invoicesDownloadResponses.map(res => {
+            const fileName = res.payload.fileName;
+            const csv = res.payload.fileData;
+
+            try {
+                const invoice = csvToInvoiceConverter.convert(csv);
+                return {status: 'success', payload: {fileName: fileName, invoice: invoice}};
+            } catch (e) {
+                return {status: 'error', payload: {fileName: fileName, errorMessage: e.message}};
+            }
+        });
+    }))
+    .pipe(tap((res: Status[]) => {
+        res.forEach(e => {
+            if (e.status === 'success') {
+                logger.info(`Successfully converted invoice ${e.payload.fileName}`);
+            } else {
+                logger.warn(`Error converting invoice ${e.payload.fileName}: ${e.payload.errorMessage}`);
+            }
+        });
+    }))
+    .pipe(map((res: Status[]) => {
+        return res
+            .filter(e => e.status === 'success')
+            .map(e => {
+                const invoice = e.payload.invoice;
+                invoice.originalFileName = e.payload.fileName;
+
+                return invoice;
+            });
+    }))
+    .pipe(publishReplay(1))
+    .pipe(refCount());
 
 
+// delete successfully fetched invoices on ftp server
+combineLatest(
+    invoices$,
+    customerSystemFtpClientConnected$
+)
+    .pipe(switchMap(([invoices, _]) => {
+        const deleteInvoiceObservables: Observable<Status>[] = invoices.map(invoice => {
+            return ftpService.delete(customerSystemFtpClient, getInvoiceFtpGetPath(invoice.originalFileName));
+        });
+
+        return combineLatest(...deleteInvoiceObservables);
+    }))
+    .subscribe(() => {
+        logger.info('Successfully delete invoice files on remote.');
+    }, error => {
+        logger.error(`Error deleting invoice files on remote: ${error.message}`);
+        throw error;
+    });
 
 
+// create and upload txt and xml files
+combineLatest(
+    invoices$,
+    paymentSystemFtpClientConnected$
+)
+    .pipe(map(([invoices, _]) => {
+        return invoices.map(invoice => {
+            const txtStr = invoiceToTxtConverter.convert(invoice);
+            const xmlStr = invoiceToXmlConverter.convert(invoice);
+
+            const txtFileName = getInvoiceTxtFileName(invoice);
+            const xmlFileName = getInvoiceXmlFileName(invoice);
+
+            const txtFilePath = getInvoiceTxtFilePath(invoice);
+            const xmlFilePath = getInvoiceXmlFilePath(invoice);
+
+            fileService.writeToFile(txtFilePath, txtStr);
+            fileService.writeToFile(xmlFilePath, xmlStr);
+
+            return {
+                txt: {
+                    fileName: txtFileName,
+                    filePath: txtFilePath,
+                },
+                xml: {
+                    fileName: xmlFileName,
+                    filePath: xmlFilePath,
+                }
+            };
+        });
+    }))
+    .pipe(tap(() => logger.info('Successfully create TXT and XML files for invoices.')))
+    .pipe(switchMap((filesToUploadInformation: any[]) => {
+        const uploadFilesObservables: Observable<Status>[] = [];
+
+        filesToUploadInformation.forEach((info: any) => {
+            uploadFilesObservables.push(ftpService.upload(paymentSystemFtpClient, info.txt.filePath, INVOICE_PUT_FTP_LOCATION + info.txt.fileName));
+            uploadFilesObservables.push(ftpService.upload(paymentSystemFtpClient, info.xml.filePath, INVOICE_PUT_FTP_LOCATION + info.xml.fileName));
+        });
+
+        return combineLatest(...uploadFilesObservables);
+    }))
+    .pipe(tap((res: Status[]) => {
+        res
+            .map(e => e.payload)
+            .forEach(tmpFilePathToDelete => {
+                fileService.deleteFile(tmpFilePathToDelete);
+            });
+    }))
+    .subscribe(() => {
+        logger.info('Successfully uploaded TXT and XML files for invoices to remote.');
+    }, error => {
+        logger.error(`Error uploading TXT and XML files for invoices to remote: ${error.message}`);
+        throw error;
+    });
 
 
 
 // helper functions
+function getInvoiceTxtFilePath(invoice: Invoice): string {
+    return getInvoiceOutputFilePath(invoice, 'txt');
+}
+
+function getInvoiceXmlFilePath(invoice: Invoice): string {
+    return getInvoiceOutputFilePath(invoice, 'xml');
+}
+
+function getInvoiceOutputFilePath(invoice: Invoice, fileExtension: string): string {
+    return  fileService.getTmpDirPath() + '/' + getInvoiceOutputFileName(invoice, fileExtension);
+}
+
+function getInvoiceTxtFileName(invoice: Invoice): string {
+    return getInvoiceOutputFileName(invoice, 'txt');
+}
+
+function getInvoiceXmlFileName(invoice: Invoice): string {
+    return getInvoiceOutputFileName(invoice, 'xml');
+}
+
+function getInvoiceOutputFileName(invoice: Invoice, fileExtension: string): string {
+    return  `${invoice.recipient.recipientNumber}_${invoice.invoiceNumber}.${fileExtension}`;
+}
+
+function normalizeFtpLocation(ftpLocation: string): string {
+    if (!ftpLocation.endsWith('/')) {
+        return ftpLocation + '/';
+    }
+
+    return ftpLocation;
+}
+
+function getInvoiceFtpGetPath(fileName: string): string {
+    return INVOICE_GET_FTP_LOCATION + fileName;
+}
+
 function buildConfig(): any {
     const defaultConfigFile = resolveConfigFile(DEFAULT_CONFIG_FILE_PATH);
     const argumentConfigFile = resolveConfigFile(CommonUtils.getConfigKeyValue(ConfigKeys.CONFIG_FILE, ARGS));
@@ -138,191 +323,13 @@ function buildLogger(): any {
         format.printf(data => WINSTON.format.colorize().colorize(data.level, formatFunction(data)))
     );
 
-    const transports = [new WINSTON.transports.Console({ format: consoleFormat })];
+    const transports = [new WINSTON.transports.Console({format: consoleFormat})];
 
     if (LOG_FILE_PATH) {
-        transports.push(new WINSTON.transports.File({ filename: LOG_FILE_PATH, format: logfileFormat }));
+        transports.push(new WINSTON.transports.File({filename: LOG_FILE_PATH, format: logfileFormat}));
     }
 
     return WINSTON.createLogger({
         transports: transports,
     });
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// const csvFilePath = '/Users/stoldo/Downloads/my_invoice.data';
-// const csv = fileService.getFileContent(csvFilePath);
-//
-//
-// const converter = new CsvToInvoiceConverter(CSV_TO_JSON);
-//
-// converter.convert(csv).subscribe(invoice => {
-//     console.log(invoice);
-//
-//     // const invoiceToTxtConverter = new InvoiceToTxtConverter(DATE_FORMAT);
-//     // const result = invoiceToTxtConverter.convert(invoice);
-//
-//     const invoiceToXmlConverter = new InvoiceToXmlConverter(DATE_FORMAT);
-//     const result = invoiceToXmlConverter.convert(invoice);
-//     console.log(result);
-//
-//     fileService.writeToFile('/Users/stoldo/Downloads/my_invoice.xml', result);
-// });
-
-
-
-
-
-
-
-
-// 1.) Automatisches (regelmässiges) Abholen der Rechnungsaufträge des Kunden/Rechnungssteller
-// (Abholserver) inkl. dem Löschen der Datei auf dem Abholserver
-// per FTP (Kundensystem/out/[KlasseUndIhrNachname])
-// FTP-Server: ftp.haraldmueller.ch
-// Benutzer: schoolerinvoices
-// Passwort: Berufsschule8005!
-
-// 2.) Verarbeitung der Rechnungsaufträge zu einer korrekten und druckbaren
-// Papierrechnung (…invoice.txt) und einer maschinell verarbeitbaren XML-Rechnung (…invoice.xml)
-
-// 3.) Abgabe der Rechnung als TXT und XML auf dem Abgabeserver
-// (Zahlungssystem/in/[KlasseUndIhrNachname]) per FTP
-// FTP-Server: 134.119.225.245
-// Benutzer: 310721-297-zahlsystem
-// Passwort: Berufsschule8005!
-
-
-
-
-
-
-
-
-
-
-// business logic
-// logger.info('Starting ' + SCRIPT_NAME);
-//
-//
-// const fileToBackupName = fileService.getFileName(FILE_TO_BACKUP_PATH);
-// const backupFilePath = FTP_BACKUP_LOCATION + FileService.SEPARATOR + buildBackupFileName(fileToBackupName);
-// const confirmationFilePath = fileService.getTmpDirPath() + FileService.SEPARATOR + fileToBackupName;
-//
-// ftpService
-//     .connect(FTP_HOST, FTP_USER, FTP_PASSWORD)
-//     .pipe(
-//         tap(() => logger.info('Uploading file...')),
-//         switchMap(() => ftpService.upload(FILE_TO_BACKUP_PATH, backupFilePath)),
-//         tap(() => logger.info('Uploading file done.')),
-//         tap(() => logger.info('Verifying uploaded file...')),
-//         switchMap(() => ftpService.download(backupFilePath, confirmationFilePath)),
-//         switchMap(() => ftpService.disconnect()),
-//         map(() => {
-//             const originalFileSize = fileService.getFileSize(FILE_TO_BACKUP_PATH);
-//             const downloadedFileSize = fileService.getFileSize(confirmationFilePath);
-//
-//             if (originalFileSize !== downloadedFileSize) {
-//                 throw new ErrorCodeError(ErrorCode.FILES_NOT_THE_SAME, new Error('file sizes are not equal!'));
-//             }
-//
-//             const originalFileMd5Checksum = fileService.getFileMd5Checksum(FILE_TO_BACKUP_PATH);
-//             const downloadedFileMd5Checksum = fileService.getFileMd5Checksum(confirmationFilePath);
-//
-//             if (originalFileMd5Checksum !== downloadedFileMd5Checksum) {
-//                 throw new ErrorCodeError(ErrorCode.FILES_NOT_THE_SAME, new Error('file checksums are not equal!'));
-//             }
-//
-//             fileService.deleteFile(confirmationFilePath);
-//
-//             const zippedFileBuffer = fileService.zipFile(FILE_TO_BACKUP_PATH);
-//
-//             logger.info('Verifying uploaded file done.');
-//             return {status: 'success', payload: zippedFileBuffer};
-//         }),
-//         tap(() => logger.info('Backup successful.')),
-//         catchError(error => {
-//             logger.error('Backup failed. ' + error.errorCode);
-//             return of({status: 'error', payload: error.errorCode});
-//         }),
-//         switchMap(status => {
-//             if (DO_SEND_MAIL) {
-//                 logger.info('Sending E-Mail...');
-//
-//                 const mailOptions: any = {
-//                     from: 'auto@backup.com',
-//                     to: EMAIL_TO,
-//                     subject: 'AutoBackup Status E-Mail - ' + CommonUtils.getCurrentDateFormatted(),
-//                 };
-//
-//                 if (status.status === 'success') {
-//                     mailOptions.text = 'Backup Successful.';
-//                     mailOptions.attachments = [
-//                         {
-//                             filename: fileToBackupName + '.zip',
-//                             content: status.payload
-//                         }
-//                     ];
-//                 } else {
-//                     mailOptions.text = 'Backup failed: ' + status.payload;
-//                 }
-//
-//                 return emailService
-//                     .createTransporter(EMAIL_SERVICE, EMAIL_USER, EMAIL_PASSWORD)
-//                     .sendEmail(mailOptions);
-//             }
-//
-//             return of(null);
-//         }),
-//     )
-//     .subscribe(() => {
-//         if (DO_SEND_MAIL) {
-//             logger.info('Sending E-Mail done.');
-//         } else {
-//             logger.warn('No E-Mail sent.');
-//         }
-//
-//         logger.info('Stopping AutoBackup.');
-//     }, error => {
-//         logger.error('Sending E-Mail failed.');
-//         logger.info('Stopping AutoBackup.');
-//
-//         throw error;
-//     });
-
-
-
