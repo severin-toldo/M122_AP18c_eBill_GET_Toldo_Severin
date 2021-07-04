@@ -120,7 +120,7 @@ export class InvoiceToXmlConverter implements Converter<Invoice, string> {
     <LINE-ITEM />
     <SUMMARY>
       <INVOICE-AMOUNT>
-        <Amount>${invoice.total}</Amount>
+        <Amount>${invoice.total.toFixed(2)}</Amount>
       </INVOICE-AMOUNT>
       <VAT-AMOUNT>
         <Amount></Amount>

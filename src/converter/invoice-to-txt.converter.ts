@@ -5,6 +5,7 @@ import {Table} from "../model/table/table.model";
 import {Row} from "../model/table/row.model";
 import {CommonUtils} from "../common.utils";
 
+
 export class InvoiceToTxtConverter implements Converter<Invoice, string> {
 
     private static readonly PAYMENT_SLIP_LINE_NUMBER = 41;
@@ -131,8 +132,8 @@ export class InvoiceToTxtConverter implements Converter<Invoice, string> {
 
         const totalText = 'Total CHF';
         const totalTextPaddingRight = 9;
-        const totalTextPaddingLeft = partEntryRowLength - totalTextPaddingRight - totalTextPaddingRight - invoice.total.toString().length - partEntryRowPaddingRight;
-        content.push(CommonUtils.insertSpaces(totalTextPaddingLeft) + totalText + CommonUtils.insertSpaces(totalTextPaddingRight) + invoice.total);
+        const totalTextPaddingLeft = partEntryRowLength - totalTextPaddingRight - totalTextPaddingRight - invoice.total.toFixed(2).length - partEntryRowPaddingRight;
+        content.push(CommonUtils.insertSpaces(totalTextPaddingLeft) + totalText + CommonUtils.insertSpaces(totalTextPaddingRight) + invoice.total.toFixed(2));
         content.push('');
 
         const totalVat = '0.00'
@@ -195,8 +196,8 @@ export class InvoiceToTxtConverter implements Converter<Invoice, string> {
 
         table.rows = [
             {
-                col1: invoice.total,
-                col2: invoice.total,
+                col1: invoice.total.toFixed(2),
+                col2: invoice.total.toFixed(2),
                 col3: invoice.customer.address.name
             },
             {
