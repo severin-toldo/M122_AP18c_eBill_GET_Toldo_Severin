@@ -5,7 +5,7 @@ import {FileService} from "./service/file.service";
 import {CommonUtils} from "./common.utils";
 import {ConfigKeys} from "./model/config/config-keys.model";
 import {CsvToInvoiceConverter} from "./converter/csv-to-invoice.converter";
-import {of, Observable, combineLatest} from "rxjs";
+import {of, Observable, combineLatest, Subject, noop} from "rxjs";
 import {Status} from "./model/status.model";
 import {Invoice} from "./model/invoice/invoice.model";
 import {error} from "winston";
@@ -70,17 +70,9 @@ const logger = buildLogger();
 logger.info('Starting ' + SCRIPT_NAME);
 
 
-
-
-
-
-// TODO test error handling
-
-
-
 // set up and connect ftp clients
-const customerSystemFtpClient = new FtpClient(FTP, fileService, logger, 30000); // 30s
-const paymentSystemFtpClient = new FtpClient(FTP, fileService, logger, 30000); // 30s
+const customerSystemFtpClient = new FtpClient(FTP, fileService, logger);
+const paymentSystemFtpClient = new FtpClient(FTP, fileService, logger);
 
 const customerSystemFtpClientConnected$ = customerSystemFtpClient.connect(CUSTOMER_SYSTEM_FTP_HOST, CUSTOMER_SYSTEM_FTP_USER, CUSTOMER_SYSTEM_FTP_PASSWORD);
 const paymentSystemFtpClientConnected$ = paymentSystemFtpClient.connect(PAYMENT_SYSTEM_FTP_HOST, PAYMENT_SYSTEM_FTP_USER, PAYMENT_SYSTEM_FTP_PASSWORD);
@@ -135,6 +127,8 @@ const invoices$: Observable<Invoice[]> = customerSystemFtpClientConnected$
 
 
 // delete successfully fetched invoices on ftp server
+const invoiceFileOnCustomerSystemDeleted$ = new Subject<void>();
+
 combineLatest(
     invoices$,
     customerSystemFtpClientConnected$
@@ -148,13 +142,17 @@ combineLatest(
     }))
     .subscribe(() => {
         logger.info('Successfully delete invoice files on remote.');
+        invoiceFileOnCustomerSystemDeleted$.next();
     }, error => {
         logger.error(`Error deleting invoice files on remote: ${error.message}`);
+        invoiceFileOnCustomerSystemDeleted$.next();
         throw error;
     });
 
 
 // create and upload txt and xml files
+const invoiceFilesUploadedToPaymentSystem$ = new Subject<void>();
+
 combineLatest(
     invoices$,
     paymentSystemFtpClientConnected$
@@ -205,10 +203,22 @@ combineLatest(
     }))
     .subscribe(() => {
         logger.info('Successfully uploaded TXT and XML files for invoices to remote.');
+        invoiceFilesUploadedToPaymentSystem$.next();
     }, error => {
         logger.error(`Error uploading TXT and XML files for invoices to remote: ${error.message}`);
+        invoiceFilesUploadedToPaymentSystem$.next();
         throw error;
     });
+
+
+// disconnect ftp clients
+invoiceFileOnCustomerSystemDeleted$
+    .pipe(switchMap(() => customerSystemFtpClient.disconnect()))
+    .subscribe(noop);
+
+invoiceFilesUploadedToPaymentSystem$
+    .pipe(switchMap(() => paymentSystemFtpClient.disconnect()))
+    .subscribe(noop);
 
 
 

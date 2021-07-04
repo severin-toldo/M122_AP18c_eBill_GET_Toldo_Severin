@@ -19,23 +19,20 @@ import {noop} from "rxjs";
  * */
 export class FtpClient {
 
-    private libraryFtpClient: any;
     private host: string;
     private user: string;
     private password: string;
+    private libraryFtpClient: any;
 
     private ftpClientConnected$ = new Subject<Status>();
     private ftpClientDisconnected$ = new Subject<Status>();
     private ftpClientError$ = new Subject<Status>();
-    private ftpClientDisconnectLock$ = new Subject<boolean>();
 
 
-    private registeredTimeouts: Subject<boolean>[] = [];
 
     constructor(private ftp: any,
                 private fileService: FileService,
-                private logger: any,
-                private disconnectThresholdInMs?: number) {
+                private logger: any) {
         this.libraryFtpClient = new ftp();
         this.libraryFtpClient.on('ready', () => this.ftpClientConnected$.next({status: 'connected'}));
         this.libraryFtpClient.on('end', () => this.ftpClientDisconnected$.next({status: 'disconnected'}));
@@ -59,11 +56,6 @@ export class FtpClient {
         )
             .pipe(map(status => CommonUtils.handleStatus(status)))
             .pipe(tap(() => {
-                if (this.disconnectThresholdInMs) {
-                    this.initAutoDisconnect();
-                }
-            }))
-            .pipe(tap(() => {
                 this.logger.info('Customer system FTP client connected.');
                 this.logger.info('URL: ' + host);
                 this.logger.info('User: ' + user);
@@ -83,36 +75,8 @@ export class FtpClient {
             .pipe(tap(() => this.logger.info(`ftp client disconnected. (${this.host})`)))
     }
 
-    private initAutoDisconnect() {
-        this.ftpClientDisconnectLock$
-            .pipe(startWith(false))
-            .subscribe((ftpClientDisconnectLock) => {
-                if (ftpClientDisconnectLock) {
-                    this.registeredTimeouts.forEach(t => {
-                        t.next(true);
-                    });
-
-                    this.registeredTimeouts = [];
-
-                    const cancel = new Subject<boolean>();
-                    this.registeredTimeouts.push(cancel);
-
-                    setTimeout(() => {
-                        cancel.pipe(startWith(null)).subscribe(val => {
-                            if (!val) {
-                                console.log('disconnecting yeet');
-                                this.disconnect().subscribe(noop);
-                            }
-                        });
-                    }, this.disconnectThresholdInMs);
-                }
-            });
-    }
-
     public upload(sourcePath: string, targetPath: string): Observable<Status> {
         return Observable.create(observer => {
-            this.lockDisconnect();
-
             this.libraryFtpClient.put(sourcePath, targetPath, (error, response) => {
                 // library doesn't check if file exists
                 if (!this.fileService.doesFileExist(sourcePath)) {
@@ -128,14 +92,11 @@ export class FtpClient {
                 observer.next({status: 'success', payload: sourcePath});
             });
         })
-            .pipe(tap(() => this.unlockDisconnect()))
             .pipe(map((status: Status) => CommonUtils.handleStatus(status)));
     }
 
     public download(sourcePath: string): Observable<Status> {
         return Observable.create(observer => {
-            this.lockDisconnect();
-
             this.libraryFtpClient.get(sourcePath, (error, stream) => {
                 if (error) {
                     observer.next({status: 'error', payload: new CustomError(ErrorCode.DOWNLOAD_FAILED.toString() + ' for file ' + sourcePath, error)});
@@ -159,14 +120,11 @@ export class FtpClient {
                 });
             });
         })
-            .pipe(tap(() => this.unlockDisconnect()))
             .pipe(map((status: Status) => CommonUtils.handleStatus(status)));
     }
 
     public list(path: string): Observable<Status> {
         return Observable.create(observer => {
-            this.lockDisconnect();
-
             this.libraryFtpClient.list(path, (error, response) => {
                 if (error) {
                     observer.next({status: 'error', payload: new CustomError(ErrorCode.FETCHING_LIST_FAILED.toString() + ' for path ' + path, error)});
@@ -184,14 +142,11 @@ export class FtpClient {
                 observer.next({status: 'success', payload: list});
             });
         })
-            .pipe(tap(() => this.unlockDisconnect()))
             .pipe(map((status: Status) => CommonUtils.handleStatus(status)));
     }
 
     public delete(path: string): Observable<Status> {
         return Observable.create(observer => {
-            this.lockDisconnect();
-
             this.libraryFtpClient.delete(path, (error) => {
                 if (error) {
                     observer.next({status: 'error', payload: new CustomError(ErrorCode.DELETE_FAILED.toString() + ' for path ' + path, error)});
@@ -201,15 +156,6 @@ export class FtpClient {
                 observer.next({status: 'success'});
             });
         })
-            .pipe(tap(() => this.unlockDisconnect()))
             .pipe(map((status: Status) => CommonUtils.handleStatus(status)));
-    }
-
-    private lockDisconnect(): void {
-        this.ftpClientDisconnectLock$.next(true);
-    }
-
-    private unlockDisconnect(): void {
-        this.ftpClientDisconnectLock$.next(false);
     }
 }
