@@ -1,7 +1,6 @@
 // #!/usr/bin/env node
 
 import {flatMap, map, publishReplay, refCount, switchMap, switchMapTo, tap} from 'rxjs/operators';
-import {FtpService} from "./service/ftp.service";
 import {FileService} from "./service/file.service";
 import {CommonUtils} from "./common.utils";
 import {ConfigKeys} from "./model/config/config-keys.model";
@@ -42,7 +41,6 @@ const SYNCHRONIZED_PROMISE = require('synchronized-promise');
 
 // services
 const fileService = new FileService(FS, OS, ARCHIVER, MD5, ZIPPER);
-const ftpService = new FtpService(fileService);
 
 // converters
 const csvToInvoiceConverter = new CsvToInvoiceConverter(CSV_TO_JSON, DATE_FORMAT, SYNCHRONIZED_PROMISE);
@@ -72,41 +70,29 @@ const logger = buildLogger();
 logger.info('Starting ' + SCRIPT_NAME);
 
 
+
+
+
+
 // TODO test error handling
 
 
+
 // set up and connect ftp clients
-const customerSystemFtpClient = new FtpClient(FTP, CUSTOMER_SYSTEM_FTP_HOST, CUSTOMER_SYSTEM_FTP_USER, CUSTOMER_SYSTEM_FTP_PASSWORD);
-const paymentSystemFtpClient = new FtpClient(FTP, PAYMENT_SYSTEM_FTP_HOST, PAYMENT_SYSTEM_FTP_USER, PAYMENT_SYSTEM_FTP_PASSWORD);
+const customerSystemFtpClient = new FtpClient(FTP, fileService, logger, 30000); // 30s
+const paymentSystemFtpClient = new FtpClient(FTP, fileService, logger, 30000); // 30s
 
-const customerSystemFtpClientConnected$ = customerSystemFtpClient
-    .connect()
-    .pipe(tap(() => {
-        logger.info('Customer system FTP client connected.');
-        logger.info('URL: ' + CUSTOMER_SYSTEM_FTP_HOST);
-        logger.info('User: ' + CUSTOMER_SYSTEM_FTP_USER);
-    }))
-    .pipe(publishReplay(1))
-    .pipe(refCount());;
-
-const paymentSystemFtpClientConnected$ = paymentSystemFtpClient
-    .connect()
-    .pipe(tap(() => {
-        logger.info('Payment system FTP client connected.');
-        logger.info('URL: ' + PAYMENT_SYSTEM_FTP_HOST);
-        logger.info('User: ' + PAYMENT_SYSTEM_FTP_USER);
-    }))
-    .pipe(publishReplay(1))
-    .pipe(refCount());;
+const customerSystemFtpClientConnected$ = customerSystemFtpClient.connect(CUSTOMER_SYSTEM_FTP_HOST, CUSTOMER_SYSTEM_FTP_USER, CUSTOMER_SYSTEM_FTP_PASSWORD);
+const paymentSystemFtpClientConnected$ = paymentSystemFtpClient.connect(PAYMENT_SYSTEM_FTP_HOST, PAYMENT_SYSTEM_FTP_USER, PAYMENT_SYSTEM_FTP_PASSWORD);
 
 
 // fetch invoices
 const invoices$: Observable<Invoice[]> = customerSystemFtpClientConnected$
-    .pipe(switchMap(() => ftpService.list(customerSystemFtpClient, INVOICE_GET_FTP_LOCATION)))
+    .pipe(switchMap(() => customerSystemFtpClient.list(INVOICE_GET_FTP_LOCATION)))
     .pipe(map(response => response.payload.filter(e => e.name.includes('rechnung') && e.name.endsWith('.data'))))
     .pipe(switchMap(newInvoiceFilesResponses => {
         const invoiceDownloadObservables: Observable<Status>[] = newInvoiceFilesResponses.map(fr => {
-            return ftpService.download(customerSystemFtpClient, getInvoiceFtpGetPath(fr.name));
+            return customerSystemFtpClient.download(getInvoiceFtpGetPath(fr.name));
         });
 
         return combineLatest(...invoiceDownloadObservables);
@@ -155,7 +141,7 @@ combineLatest(
 )
     .pipe(switchMap(([invoices, _]) => {
         const deleteInvoiceObservables: Observable<Status>[] = invoices.map(invoice => {
-            return ftpService.delete(customerSystemFtpClient, getInvoiceFtpGetPath(invoice.originalFileName));
+            return customerSystemFtpClient.delete(getInvoiceFtpGetPath(invoice.originalFileName));
         });
 
         return combineLatest(...deleteInvoiceObservables);
@@ -204,8 +190,8 @@ combineLatest(
         const uploadFilesObservables: Observable<Status>[] = [];
 
         filesToUploadInformation.forEach((info: any) => {
-            uploadFilesObservables.push(ftpService.upload(paymentSystemFtpClient, info.txt.filePath, INVOICE_PUT_FTP_LOCATION + info.txt.fileName));
-            uploadFilesObservables.push(ftpService.upload(paymentSystemFtpClient, info.xml.filePath, INVOICE_PUT_FTP_LOCATION + info.xml.fileName));
+            uploadFilesObservables.push(paymentSystemFtpClient.upload(info.txt.filePath, INVOICE_PUT_FTP_LOCATION + info.txt.fileName));
+            uploadFilesObservables.push(paymentSystemFtpClient.upload(info.xml.filePath, INVOICE_PUT_FTP_LOCATION + info.xml.fileName));
         });
 
         return combineLatest(...uploadFilesObservables);
