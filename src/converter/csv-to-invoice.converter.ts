@@ -1,14 +1,17 @@
 import {Invoice} from "../model/invoice/invoice.model";
 import {from, Observable} from "rxjs";
-import {map, switchMap} from "rxjs/operators";
+import {catchError, map, switchMap} from "rxjs/operators";
 import {Recipient} from "../model/recipient.model";
 import {Customer} from "../model/customer.model";
 import {InvoicePartEntry} from "../model/invoice/invoice-part.model";
 import {Address} from "../model/address.model";
 import {CommonUtils} from "../common.utils";
 import {Converter} from "./converter.interface";
+import {Status} from "../model/status.model";
+import {of} from "rxjs";
 
-export class CsvToInvoiceConverter implements Converter<string, Observable<Invoice>> {
+
+export class CsvToInvoiceConverter implements Converter<string, Invoice> {
 
     private static readonly CSV_TO_JSON_CONFIG = {
         noheader: true, // Indicating csv data has no header row and first row is data row. Default is false
@@ -24,33 +27,38 @@ export class CsvToInvoiceConverter implements Converter<string, Observable<Invoi
     private static readonly INVOICE_PART_ENTRIES_OFFSET = 3; // take all elements with index >= 3
 
     private csvToJson: any;
+    private dateFormat: any;
+    private synchronizedPromise: any;
 
 
-    constructor(csvToJson: any) {
+    constructor(csvToJson: any, dateFormat: any, synchronizedPromise: any) {
         this.csvToJson = csvToJson;
+        this.dateFormat = dateFormat;
+        this.synchronizedPromise = synchronizedPromise;
     }
 
-    public convert(csv: string): Observable<Invoice> {
-        return from(this.csvToJson(CsvToInvoiceConverter.CSV_TO_JSON_CONFIG).fromString(csv))
-            .pipe(map((invoiceJson: any[]) => {
-                this.validateInvoiceJson(invoiceJson);
+    public convert(csv: string): Invoice {
+        const asyncFunction = (value) => this.csvToJson(CsvToInvoiceConverter.CSV_TO_JSON_CONFIG).fromString(value);
+        const syncFunction = this.synchronizedPromise(asyncFunction);
+        const invoiceJson: any[] = syncFunction(csv);
 
-                const invoice = new Invoice();
+        this.validateInvoiceJson(invoiceJson);
 
-                invoice.invoiceNumber = this.getInvoiceNumberFromJson(invoiceJson);
-                invoice.orderNumber = this.getOrderNumberFromJson(invoiceJson);
-                invoice.creationPlace = this.getCreationPlaceFromJson(invoiceJson);
-                invoice.creationDate = this.getCreationDateFromJson(invoiceJson);
-                invoice.recipient = this.getRecipientFromJson(invoiceJson);
-                invoice.customer = this.getCustomerFromJson(invoiceJson);
-                invoice.partEntries = this.getPartEntriesFromJson(invoiceJson);
+        const invoice = new Invoice();
 
-                this.setPaymentTarget(invoiceJson, invoice);
-                this.setTotal(invoice);
-                this.setReferenceNumber(invoice);
+        invoice.invoiceNumber = this.getInvoiceNumberFromJson(invoiceJson);
+        invoice.orderNumber = this.getOrderNumberFromJson(invoiceJson);
+        invoice.creationPlace = this.getCreationPlaceFromJson(invoiceJson);
+        invoice.creationDate = this.getCreationDateFromJson(invoiceJson);
+        invoice.recipient = this.getRecipientFromJson(invoiceJson);
+        invoice.customer = this.getCustomerFromJson(invoiceJson);
+        invoice.partEntries = this.getPartEntriesFromJson(invoiceJson);
 
-                return invoice;
-            }));
+        this.setPaymentTarget(invoiceJson, invoice);
+        this.setTotal(invoice);
+        this.setReferenceNumber(invoice);
+
+        return invoice;
     }
 
     private getInvoiceNumberFromJson(invoiceJson: any[]): string {
@@ -148,7 +156,19 @@ export class CsvToInvoiceConverter implements Converter<string, Observable<Invoi
             partEntries.push(partEntry);
         }
 
+        this.validatePartEntries(partEntries);
+
         return partEntries;
+    }
+
+    private validatePartEntries(partEntries: InvoicePartEntry[]): void {
+        partEntries.forEach(e => {
+            const calculatedTotal = e.quantity * e.price;
+
+            if (parseFloat(calculatedTotal.toString()) !== parseFloat(e.total.toString())) {
+                throw new Error('Given and calculated total do not match for part with number ' + e.partNumber);
+            }
+        });
     }
 
     private setPaymentTarget(invoiceJson: any[], invoice: Invoice): void {
@@ -165,12 +185,11 @@ export class CsvToInvoiceConverter implements Converter<string, Observable<Invoi
             .reduce((total: number, currentTotal: number) => {
                 // wtf javascript??
                 return parseFloat(total.toString()) + parseFloat(currentTotal.toString());
-            })
-            .toFixed(2);
+            });
     }
 
     private setReferenceNumber(invoice: Invoice) {
-        invoice.referenceNumber = '0 00000 00000 00000'; // couldn't spot any reference number in the csv
+        invoice.referenceNumber = this.dateFormat(invoice.creationDate, 'yyyymmddHHMMss');
     }
 
     private validateInvoiceJson(invoiceJson: any[]): void {
