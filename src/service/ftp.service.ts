@@ -3,8 +3,12 @@ import {map} from "rxjs/operators";
 import {Status} from "../model/status.model";
 import {CommonUtils} from "../common.utils";
 import {FileService} from "./file.service";
-import {ErrorCodeError} from "../model/error-code/error-code-error.model";
-import {ErrorCode} from "../model/error-code/error-code.enum";
+import {ErrorCodeError} from "../model/error/error-code.error";
+import {ErrorCode} from "../model/error/error-code.enum";
+import {FtpFileResponse} from "../model/ftp/ftp-file-response.model";
+import {FtpFileType} from "../model/ftp/ftp-file-type.enum";
+import {FtpClient} from "../model/ftp/ftp-client.model";
+import {CustomError} from "../model/error/custom.error";
 
 /*
  * FtpService
@@ -12,47 +16,12 @@ import {ErrorCode} from "../model/error-code/error-code.enum";
  * */
 export class FtpService {
 
-    private ftpClientConnected$ = new Subject<Status>();
-    private ftpClientDisconnected$ = new Subject<Status>();
-    private ftpClientError$ = new Subject<Status>();
-
-
-    constructor(private ftp: any,
-                private fs: any,
-                private fileService: FileService) {
-        this.ftp.on('ready', () => this.ftpClientConnected$.next({status: 'connected'}));
-        this.ftp.on('end', () => this.ftpClientDisconnected$.next({status: 'disconnected'}));
-        this.ftp.on('error', (error) => this.ftpClientError$.next({status: 'error', payload: new ErrorCodeError(ErrorCode.FTP_CONNECTION_FAILED, error)}));
+    constructor(private fileService: FileService) {
     }
 
-    public connect(host: string, user: string, password: string): Observable<Status> {
-        this.ftp.connect({
-            'host': host,
-            'user': user,
-            'password': password
-        });
-
-        return race(
-            this.ftpClientConnected$,
-            this.ftpClientError$
-        )
-            .pipe(map(status => CommonUtils.handleStatus(status)))
-    }
-
-    public disconnect(): Observable<Status> {
-        this.ftp.end();
-
-        return race(
-            this.ftpClientDisconnected$,
-            this.ftpClientError$
-        )
-            .pipe(map(status => CommonUtils.handleStatus(status)))
-    }
-
-    public upload(sourcePath: string, targetPath: string): Observable<Status> {
+    public upload(ftpClient: FtpClient, sourcePath: string, targetPath: string): Observable<Status> {
         return Observable.create(observer => {
-            this.ftp.put(sourcePath, targetPath, (error, response) => {
-
+            ftpClient.prepare().put(sourcePath, targetPath, (error, response) => {
                 // library doesn't check if file exists
                 if (!this.fileService.doesFileExist(sourcePath)) {
                     observer.next({status: 'error', payload: new ErrorCodeError(ErrorCode.UPLOAD_FAILED, new Error('Invalid source path, file does not exist! ' + sourcePath))});
@@ -60,29 +29,23 @@ export class FtpService {
                 }
 
                 if (error) {
-                    observer.next({status: 'error', payload: new ErrorCodeError(ErrorCode.UPLOAD_FAILED, error)});
+                    observer.next({status: 'error', payload: new CustomError(ErrorCode.UPLOAD_FAILED.toString() + ' for file ' + sourcePath, error)});
                     return;
                 }
 
-                observer.next({status: 'success'});
+                observer.next({status: 'success', payload: sourcePath});
             });
         })
             .pipe(map((status: Status) => CommonUtils.handleStatus(status)));
     }
 
-    public download(sourcePath: string, targetPath: string): Observable<Status> {
+    public download(ftpClient: FtpClient, sourcePath: string): Observable<Status> {
         const _this = this;
 
         return Observable.create(observer => {
-            this.ftp.get(sourcePath, (error, stream) => {
-                // library doesn't check if parent file exists
-                if (!this.fileService.doesParentFileExist(targetPath)) {
-                    observer.next({status: 'error', payload: new ErrorCodeError(ErrorCode.DOWNLOAD_FAILED, new Error('Invalid target path, parent file does not exist! ' + targetPath))});
-                    return;
-                }
-
+            ftpClient.prepare().get(sourcePath, (error, stream) => {
                 if (error) {
-                    observer.next({status: 'error', payload: new ErrorCodeError(ErrorCode.DOWNLOAD_FAILED, error)});
+                    observer.next({status: 'error', payload: new CustomError(ErrorCode.DOWNLOAD_FAILED.toString() + ' for file ' + sourcePath, error)});
                     return;
                 }
 
@@ -94,16 +57,51 @@ export class FtpService {
                 });
 
                 stream.on('end', () => {
-                    this.fileService.writeToFile(targetPath, fileContentAsString);
-                    observer.next({status: 'success'});
+                    const fileName = sourcePath.substring(sourcePath.lastIndexOf('/') + 1);
+                    observer.next({status: 'success', payload: {fileName: fileName, fileData: fileContentAsString}});
                 });
 
                 stream.on('error', error => {
-                    observer.next({status: 'error', payload: new ErrorCodeError(ErrorCode.DOWNLOAD_FAILED, error)});
+                    observer.next({status: 'error', payload: new CustomError(ErrorCode.DOWNLOAD_FAILED.toString() + ' for file ' + sourcePath, error)});
                 });
             });
         })
             .pipe(map((status: Status) => CommonUtils.handleStatus(status)));
     }
 
+    public list(ftpClient: FtpClient, path: string): Observable<Status> {
+        return Observable.create(observer => {
+            ftpClient.prepare().list(path, (error, response) => {
+                if (error) {
+                    observer.next({status: 'error', payload: new CustomError(ErrorCode.FETCHING_LIST_FAILED.toString() + ' for path ' + path, error)});
+                    return;
+                }
+
+                const list = response.map(e => {
+                    const ftpFileResponse = new FtpFileResponse();
+                    ftpFileResponse.name = e.name;
+                    ftpFileResponse.type = e.type === 'd' ? FtpFileType.DIRECTORY : FtpFileType.FILE;
+
+                    return ftpFileResponse;
+                });
+
+                observer.next({status: 'success', payload: list});
+            });
+        })
+            .pipe(map((status: Status) => CommonUtils.handleStatus(status)));
+    }
+
+    public delete(ftpClient: FtpClient, path: string): Observable<Status> {
+        return Observable.create(observer => {
+            ftpClient.prepare().delete(path, (error) => {
+                if (error) {
+                    observer.next({status: 'error', payload: new CustomError(ErrorCode.DELETE_FAILED.toString() + ' for path ' + path, error)});
+                    return;
+                }
+
+                observer.next({status: 'success'});
+            });
+        })
+            .pipe(map((status: Status) => CommonUtils.handleStatus(status)));
+    }
 }
