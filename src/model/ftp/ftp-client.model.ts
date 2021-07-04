@@ -2,15 +2,12 @@ import {Status} from "../status.model";
 import {ErrorCodeError} from "../error/error-code.error";
 import {ErrorCode} from "../error/error-code.enum";
 import {CommonUtils} from "../../common.utils";
-import {Observable, Subject, race} from "rxjs";
-import {map, publishReplay, refCount, startWith, tap} from "rxjs/operators";
+import {Observable, race, Subject} from "rxjs";
+import {map, publishReplay, refCount, tap} from "rxjs/operators";
 import {FileService} from "../../service/file.service";
 import {CustomError} from "../error/custom.error";
 import {FtpFileResponse} from "./ftp-file-response.model";
 import {FtpFileType} from "./ftp-file-type.enum";
-import {combineLatest} from "rxjs";
-import Timeout = NodeJS.Timeout;
-import {noop} from "rxjs";
 
 
 /*

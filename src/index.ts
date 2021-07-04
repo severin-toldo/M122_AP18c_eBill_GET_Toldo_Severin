@@ -1,14 +1,13 @@
 // #!/usr/bin/env node
 
-import {flatMap, map, publishReplay, refCount, switchMap, switchMapTo, tap} from 'rxjs/operators';
+import {map, publishReplay, refCount, switchMap, tap} from 'rxjs/operators';
 import {FileService} from "./service/file.service";
 import {CommonUtils} from "./common.utils";
 import {ConfigKeys} from "./model/config/config-keys.model";
 import {CsvToInvoiceConverter} from "./converter/csv-to-invoice.converter";
-import {of, Observable, combineLatest, Subject, noop} from "rxjs";
+import {combineLatest, noop, Observable, Subject} from "rxjs";
 import {Status} from "./model/status.model";
 import {Invoice} from "./model/invoice/invoice.model";
-import {error} from "winston";
 import {InvoiceToTxtConverter} from "./converter/invoice-to-txt.converter";
 import {InvoiceToXmlConverter} from "./converter/invoice-to-xml.converter";
 import {FtpClient} from "./model/ftp/ftp-client.model";

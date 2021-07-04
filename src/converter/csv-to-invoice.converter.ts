@@ -1,14 +1,10 @@
 import {Invoice} from "../model/invoice/invoice.model";
-import {from, Observable} from "rxjs";
-import {catchError, map, switchMap} from "rxjs/operators";
 import {Recipient} from "../model/recipient.model";
 import {Customer} from "../model/customer.model";
 import {InvoicePartEntry} from "../model/invoice/invoice-part.model";
 import {Address} from "../model/address.model";
 import {CommonUtils} from "../common.utils";
 import {Converter} from "./converter.interface";
-import {Status} from "../model/status.model";
-import {of} from "rxjs";
 
 
 export class CsvToInvoiceConverter implements Converter<string, Invoice> {
