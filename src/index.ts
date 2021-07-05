@@ -243,7 +243,7 @@ function getInvoiceXmlFileName(invoice: Invoice): string {
 }
 
 function getInvoiceOutputFileName(invoice: Invoice, fileExtension: string): string {
-    return  `${invoice.recipient.recipientNumber}_${invoice.invoiceNumber}.${fileExtension}`;
+    return  `${invoice.recipient.recipientNumber}_${invoice.invoiceNumber}_invoice.${fileExtension}`;
 }
 
 function normalizeFtpLocation(ftpLocation: string): string {

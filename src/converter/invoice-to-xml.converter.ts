@@ -71,6 +71,7 @@ export class InvoiceToXmlConverter implements Converter<Invoice, string> {
         </PARTY-ID>
         <NAME-ADDRESS Format="COM">
           <NAME>
+            <Line-35>${invoice.recipient.email}</Line-35>
             <Line-35>${invoice.recipient.address.name}</Line-35>
             <Line-35>${invoice.recipient.address.street}</Line-35>
             <Line-35>${invoice.recipient.address.place}</Line-35>
